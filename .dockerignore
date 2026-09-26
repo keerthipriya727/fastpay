@@ -1,0 +1,10 @@
+.venv
+venv
+__pycache__
+*.pyc
+.git
+.pytest_cache
+tests
+*.db
+sample_events.json
+.env

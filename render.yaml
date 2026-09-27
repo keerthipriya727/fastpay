@@ -1,8 +1,9 @@
 services:
   - type: web
     name: setu-payment-service
-    runtime: docker
-    dockerfilePath: ./Dockerfile
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     plan: free
     region: oregon
     healthCheckPath: /health

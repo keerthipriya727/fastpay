@@ -10,9 +10,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql://postgres:keerthi727@localhost:5432/postgres"
+    database_url: str = ""
 
-    api_key: str = "keerthi_fastpay"
+    api_key: str = ""
 
     # Configurable threshold used by the discrepancy detector to flag a payment that was
     # processed but never settled.

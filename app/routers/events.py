@@ -27,7 +27,7 @@ def ingest_single_event(payload: EventIn, db: Session = Depends(get_db)) -> Even
     )
 
 
-#@router.post("/batch", response_model=BatchIngestResponse, status_code=201)
+@router.post("/batch", response_model=BatchIngestResponse, status_code=201)
 def ingest_batch(payloads: list[dict], db: Session = Depends(get_db)) -> BatchIngestResponse:
     """
     Batch ingestion for bulk/backfill loading (e.g. sample_events.json).

@@ -274,4 +274,4 @@ in `render.yaml`).
 
 ## AI tool disclosure
 
--Used Claude to generate the boiler plate, test cases and diverse sample data.
+Used Claude (Anthropic) throughout this project — for architecture and schema design decisions, generating the initial FastAPI/SQLAlchemy implementation, the sample data generator, and Render deployment configuration. I reviewed, tested, and debugged the generated code myself, and made the final calls on tradeoffs.

@@ -82,7 +82,7 @@ tradeoff below.
 
 ---
 
-## 2. Setup — local development (no Docker required)
+## 2. Setup — local development
 
 ```bash
 python -m venv .venv
@@ -104,8 +104,7 @@ python scripts/load_sample_data.py --base-url http://localhost:8000
 ### Optional: running against Postgres
 
 Not required for local development, but if you'd rather point this at a
-real Postgres instance you already have running (no Docker needed —
-just a normal local install, or a hosted one):
+real Postgres instance you already have running:
 
 ```bash
 pip install psycopg2-binary alembic
@@ -184,58 +183,47 @@ collection variable to deployed URL or `http://localhost:8000`.
 
 ## 4. Deployment (Render)
 
-This repo includes a Dockerfile and a `render.yaml` Blueprint, so Render
-can build and run the container itself with a managed Postgres attached —
-no manual dashboard clicking required for the base setup.
+### Local / manual setup
 
-### Option A: Blueprint (recommended — one step)
+1. Create and activate a virtual environment.
+2. Install dependencies:
+   `pip install -r requirements.txt`
+3. Set the required environment variables:
+   - `DATABASE_URL` — your PostgreSQL connection string
+   - `API_KEY` — optional; if set, requests must include `X-API-Key`
+4. Start the app:
+   `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+5. Health endpoint:
+   `GET /health`
 
-1. Push this repo to GitHub/GitLab.
-2. In Render: **New → Blueprint**, point it at the repo. Render reads
-   `render.yaml` and provisions both the web service (built from
-   `Dockerfile`) and a free Postgres database, and wires
-   `DATABASE_URL` between them automatically.
-3. Render will prompt you for the one env var marked `sync: false` in
-   `render.yaml` — set **`API_KEY`** to whatever value you want to
-   require in the `X-API-Key` header (leave it blank in the dashboard if
-   you want auth left off for grading/demo purposes).
-4. Deploy. Render builds the Docker image, starts the container bound to
-   its `$PORT`, and polls `GET /health` before marking it live.
+### Example environment values
 
-### Option B: manual web service (no Blueprint)
+- Local PostgreSQL:
+  `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/setu_payment_service`
+- Auth:
+  `API_KEY=my-secret-key`
 
-If you'd rather not use the Blueprint flow: **New → Web Service**, point
-at the repo, choose **Docker** as the environment (Render will detect
-`Dockerfile` automatically), then separately **New → PostgreSQL** to
-create a database. Copy its **Internal Database URL** into the web
-service's `DATABASE_URL` env var, and set `API_KEY` the same way.
-
-### Schema setup on first deploy
+### Schema setup on first run
 
 The app calls `Base.metadata.create_all()` on startup (see `app/main.py`)
-regardless of which database it's pointed at — so the very first deploy
-creates all tables automatically, no separate migration step needed. This
+regardless of which database it's pointed at — so the first run creates
+all required tables automatically, no separate migration step needed. This
 is deliberately kept simple: `create_all()` only creates tables that
-don't already exist, so it's safe to redeploy repeatedly.
+don't already exist, so it is safe to restart repeatedly.
 
-If you later evolve the schema and want real, versioned migrations
-instead of relying on `create_all()`, use Alembic (already set up in
-`alembic/`, and `psycopg2-binary` + `alembic` are installed in the Docker
-image specifically for this): open the service's **Shell** tab in Render
-and run `alembic upgrade head` manually. Don't mix the two carelessly on
-the same database — if you've already let `create_all()` build the
-tables and then run Alembic expecting to build them itself, you can hit
-the same "column referenced in foreign key constraint does not exist"
-class of error we ran into earlier with a stale/mismatched schema. If
-that happens, it means the two mechanisms disagree about what's already
-there — fix by dropping the tables (`DROP TABLE events, transactions,
-merchants, alembic_version CASCADE;` via the Shell's `psql`) and picking
-one mechanism going forward.
+If you later evolve the schema and want real, versioned migrations,
+use Alembic (`alembic/` is already included). Run:
 
-`GET /health` is what Render's own health check polls (`healthCheckPath`
-in `render.yaml`).
+`alembic upgrade head`
 
-> **Deployed URL:** https://setu-payment-service-ru8i.onrender.com
+Don't mix `create_all()` and Alembic on the same database unless you are
+certain the schema is consistent. If you previously created tables via
+`create_all()` and then run Alembic against the same database, you may see
+foreign-key/schema mismatch errors. In that case, drop the tables and pick
+one approach going forward.
+
+> Example cleanup if needed: `DROP TABLE events, transactions, merchants, alembic_version CASCADE;`
+
 ---
 
 ## 5. Assumptions & tradeoffs

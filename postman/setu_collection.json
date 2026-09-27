@@ -1,13 +1,12 @@
 {
   "info": {
-    "name": "Setu Payment Reconciliation Service",
+    "name": "FastPay Payment Service",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "description": "Ingestion, transaction retrieval, and reconciliation reporting endpoints."
   },
   "variable": [
-    { "key": "base_url", "value": "http://localhost:8000" },
-    { "key": "api_key", "value": "keerthi_fastpay" },
-    { "key": "transaction_id", "value": "" }
+    { "key": "base_url", "value": "https://setu-payment-service-ru8i.onrender.com" },
+    { "key": "api_key", "value": "" }
   ],
   "item": [
     {

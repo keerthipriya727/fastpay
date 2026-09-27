@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Setu Payment Reconciliation Service",
+    title="FastPay Payment Service",
     description=(
         "Ingests payment lifecycle events, maintains transaction state, "
         "and reports reconciliation discrepancies between payment and "

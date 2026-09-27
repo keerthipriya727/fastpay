@@ -1,13 +1,10 @@
-
-# Setu Payment Reconciliation Service
+# FastPay Payment Service
 
 A backend service that ingests payment lifecycle events, maintains
 transaction state derived from them, and exposes reconciliation reporting
 to surface discrepancies between payment and settlement status.
 
-Built with **FastAPI + SQLAlchemy 2.0 + PostgreSQL** (SQLite supported for
-zero-setup local runs). Migrations via **Alembic**.
-
+Built with **FastAPI + SQLAlchemy 2.0**. 
 ---
 
 ## 1. Architecture overview
@@ -26,8 +23,7 @@ Three tables, event-sourced:
   table, not `events`, so reads stay cheap regardless of how many events a
   transaction has accumulated.
 
-See `app/models.py` for the full schema, or `alembic/versions/0001_initial.py`
-for the SQL DDL.
+See `app/models.py` for the full schema.
 
 ### Why event-sourced instead of a single mutable table
 
@@ -42,7 +38,7 @@ from them gives you:
 - a clean place to detect out-of-order and conflicting events
 
 The tradeoff is one extra write (or state recompute) per event compared to
-a single mutable-row design. At this data volume that's irrelevant.
+a single mutable-row design.
 
 ### State machine (the core logic)
 
@@ -86,29 +82,17 @@ tradeoff below.
 
 ---
 
-## 2. Setup — local development
-
-### Option A: zero setup (SQLite)
+## 2. Setup — local development (no Docker required)
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env                                 # default DATABASE_URL is sqlite
+cp .env.example .env              #set the variables to run locally
 uvicorn app.main:app --reload
 ```
-
-The app creates its own tables on startup in this mode (`Base.metadata.create_all`
-— fine for a quick look, not what you'd rely on for real migrations).
+Set the database url in .env.example
 Open `http://localhost:8000/docs` for interactive Swagger UI.
-
-### Option B: Docker Compose (Postgres — matches production target)
-
-```bash
-docker compose up --build
-```
-
-This starts Postgres, waits for it to be healthy, runs `alembic upgrade head`,
-then starts the API on `http://localhost:8000`.
 
 ### Load the sample dataset
 
@@ -117,15 +101,32 @@ python scripts/generate_sample_data.py     # regenerates sample_events.json (opt
 python scripts/load_sample_data.py --base-url http://localhost:8000
 ```
 
-### Run tests
+### Optional: running against Postgres
+
+Not required for local development, but if you'd rather point this at a
+real Postgres instance you already have running (no Docker needed —
+just a normal local install, or a hosted one):
 
 ```bash
-pytest
+pip install psycopg2-binary alembic
 ```
-
-Tests run against an isolated in-memory SQLite DB per test (see
-`tests/conftest.py`) — fast, but a documented simplification versus
-testing against real Postgres (see Tradeoffs).
+Set in `.env`:
+```
+DATABASE_URL=postgresql+psycopg2://<user>:<password>@localhost:5432/<dbname>
+```
+Then run migrations instead of relying on `create_all`:
+```bash
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+If you hit an error about columns/tables not matching what a migration
+expects, it almost always means the target database already has
+differently-shaped tables in it from a previous attempt. Fastest fix on a
+throwaway dev database:
+```bash
+psql "$DATABASE_URL" -c 'DROP TABLE IF EXISTS events, transactions, merchants, alembic_version CASCADE;'
+alembic upgrade head
+```
 
 ---
 
@@ -172,37 +173,69 @@ Paginated list of transactions with a payment/settlement inconsistency,
 each with its `discrepancy_reason`.
 
 ### Auth
-Optional `X-API-Key` header, enforced only if `API_KEY` is set in the
+`X-API-Key` header, enforced only if `API_KEY` is set in the
 environment (empty/unset = auth disabled, for easy local grading).
 
 ### Postman collection
 `postman/setu_collection.json` — import into Postman; set the `base_url`
-collection variable to your deployed URL or `http://localhost:8000`.
+collection variable to deployed URL or `http://localhost:8000`.
 
 ---
 
-## 4. Deployment
+## 4. Deployment (Render)
 
-**What's included:** a production-shaped `Dockerfile` (multi-stage,
-non-root user, healthcheck) and `docker-compose.yml` for local Postgres.
+This repo includes a Dockerfile and a `render.yaml` Blueprint, so Render
+can build and run the container itself with a managed Postgres attached —
+no manual dashboard clicking required for the base setup.
 
-**What you still need to do:** actually deploy it. Pick one:
-- **Render / Railway / Fly.io** — point them at this repo's Dockerfile,
-  attach a managed Postgres, set `DATABASE_URL` and (optionally) `API_KEY`
-  as env vars, run `alembic upgrade head` as a release-phase command before
-  the app starts.
-- **AWS (ECS/Fargate) / GCP Cloud Run** — same idea, more setup.
+### Option A: Blueprint (recommended — one step)
 
-Whichever you choose: run migrations as a **separate release step**, not
-inside the app's own `on_event("startup")` — the current
-`docker-compose.yml` command chains them (`alembic upgrade head && uvicorn ...`)
-for local simplicity, which is fine for a single instance but would race
-if you ever scaled to multiple app instances starting concurrently.
+1. Push this repo to GitHub/GitLab.
+2. In Render: **New → Blueprint**, point it at the repo. Render reads
+   `render.yaml` and provisions both the web service (built from
+   `Dockerfile`) and a free Postgres database, and wires
+   `DATABASE_URL` between them automatically.
+3. Render will prompt you for the one env var marked `sync: false` in
+   `render.yaml` — set **`API_KEY`** to whatever value you want to
+   require in the `X-API-Key` header (leave it blank in the dashboard if
+   you want auth left off for grading/demo purposes).
+4. Deploy. Render builds the Docker image, starts the container bound to
+   its `$PORT`, and polls `GET /health` before marking it live.
 
-`GET /health` is the endpoint to point your platform's health check at.
+### Option B: manual web service (no Blueprint)
 
-> **Deployed URL:** _fill in after you deploy — e.g. `https://setu-payments.onrender.com`_
+If you'd rather not use the Blueprint flow: **New → Web Service**, point
+at the repo, choose **Docker** as the environment (Render will detect
+`Dockerfile` automatically), then separately **New → PostgreSQL** to
+create a database. Copy its **Internal Database URL** into the web
+service's `DATABASE_URL` env var, and set `API_KEY` the same way.
 
+### Schema setup on first deploy
+
+The app calls `Base.metadata.create_all()` on startup (see `app/main.py`)
+regardless of which database it's pointed at — so the very first deploy
+creates all tables automatically, no separate migration step needed. This
+is deliberately kept simple: `create_all()` only creates tables that
+don't already exist, so it's safe to redeploy repeatedly.
+
+If you later evolve the schema and want real, versioned migrations
+instead of relying on `create_all()`, use Alembic (already set up in
+`alembic/`, and `psycopg2-binary` + `alembic` are installed in the Docker
+image specifically for this): open the service's **Shell** tab in Render
+and run `alembic upgrade head` manually. Don't mix the two carelessly on
+the same database — if you've already let `create_all()` build the
+tables and then run Alembic expecting to build them itself, you can hit
+the same "column referenced in foreign key constraint does not exist"
+class of error we ran into earlier with a stale/mismatched schema. If
+that happens, it means the two mechanisms disagree about what's already
+there — fix by dropping the tables (`DROP TABLE events, transactions,
+merchants, alembic_version CASCADE;` via the Shell's `psql`) and picking
+one mechanism going forward.
+
+`GET /health` is what Render's own health check polls (`healthCheckPath`
+in `render.yaml`).
+
+> **Deployed URL:** https://setu-payment-service-ru8i.onrender.com
 ---
 
 ## 5. Assumptions & tradeoffs
@@ -231,18 +264,14 @@ if you ever scaled to multiple app instances starting concurrently.
 - **Last-write-wins** for merchant name and for amount/currency when
   events disagree (the conflict itself is *also* flagged as a
   discrepancy, so it's visible, not silently swallowed).
-- **`create_all` on startup vs. Alembic**: `create_all` is only there so
-  Option A (SQLite, zero setup) works with no extra step. Docker Compose
-  and any real deployment should run `alembic upgrade head` instead —
-  that's the actual migration path (`alembic/`).
-- **Tests use in-memory SQLite, not Postgres**, for speed and zero
-  external dependency in CI. This is a real tradeoff: SQLite's JSON/type
-  handling and concurrency behavior differ slightly from Postgres. A
-  stronger setup would run the integration tests against a real Postgres
-  container (e.g. via `testcontainers`); noted here rather than silently
-  glossed over.
+- **`create_all` on startup vs. Alembic**: `create_all` is the only
+  schema-setup path for local dev (SQLite by default) — no separate
+  migration step needed. Alembic (`alembic/`) is included for anyone
+  who deploys against a persistent Postgres and wants real, versioned
+  migrations instead of `create_all`; it's optional, not required to run
+  this service.
+
 
 ## AI tool disclosure
 
-_Fill in per the assignment's submission requirements — be specific about
-what was AI-assisted vs. hand-written/reviewed._
+-Used Claude to generate the boiler plate, test cases and diverse sample data.
